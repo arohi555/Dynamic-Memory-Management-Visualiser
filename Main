@@ -1,0 +1,201 @@
+#include <iostream>
+#include <vector>
+#include <map>
+#include <unordered_map>
+#include <climits>
+
+using namespace std;
+
+struct PageTableEntry {
+    int pageNumber;
+    int frameNumber;
+    bool valid;
+    int loadedTime;     // for FIFO
+    int lastUsedTime;   // for LRU
+
+    PageTableEntry(int p = -1) {
+        pageNumber = p;
+        frameNumber = -1;
+        valid = false;
+        loadedTime = -1;
+        lastUsedTime = -1;
+    }
+};
+
+class PagingSimulator {
+    int numFrames;
+    vector<int> refString;
+    string algo;
+    vector<int> frames; // frame[i] holds page number or -1
+    unordered_map<int, PageTableEntry> pageTable;
+    int currentTime;
+    int pageFaults;
+    int hits;
+
+public:
+    PagingSimulator(int framesCount, const vector<int>& refs, const string& algorithm)
+        : numFrames(framesCount), refString(refs), algo(algorithm) {
+        frames.assign(numFrames, -1);
+        currentTime = 0;
+        pageFaults = 0;
+        hits = 0;
+    }
+
+    void run() {
+        cout << "Algorithm: " << algo << ", Frames: " << numFrames << "\n";
+        cout << "Reference string: ";
+        for (int p : refString) cout << p << " ";
+        cout << "\n==============================\n";
+
+        for (int page : refString) {
+            currentTime++;
+            accessPage(page);
+        }
+
+        cout << "\nSimulation complete.\n";
+        cout << "Total references : " << refString.size() << "\n";
+        cout << "Page hits        : " << hits << "\n";
+        cout << "Page faults      : " << pageFaults << "\n";
+        double faultRate = (double)pageFaults / refString.size() * 100.0;
+        cout << "Fault rate       : " << faultRate << "%\n";
+    }
+
+private:
+    PageTableEntry& getEntry(int page) {
+        if (pageTable.find(page) == pageTable.end()) {
+            pageTable[page] = PageTableEntry(page);
+        }
+        return pageTable[page];
+    }
+
+    void accessPage(int page) {
+        PageTableEntry &entry = getEntry(page);
+
+        // Check HIT
+        if (entry.valid) {
+            hits++;
+            entry.lastUsedTime = currentTime; // useful for LRU
+            visualizeStep(page, "HIT");
+            return;
+        }
+
+        // PAGE FAULT
+        pageFaults++;
+
+        // Check for free frame
+        int freeIndex = -1;
+        for (int i = 0; i < numFrames; i++) {
+            if (frames[i] == -1) {
+                freeIndex = i;
+                break;
+            }
+        }
+
+        int frameToUse;
+        int replacedPage = -1;
+
+        if (freeIndex != -1) {
+            // Use free frame
+            frameToUse = freeIndex;
+        } else {
+            // Need to replace a page using FIFO or LRU
+            frameToUse = chooseVictimFrame();
+            replacedPage = frames[frameToUse];
+            // Invalidate old page
+            pageTable[replacedPage].valid = false;
+            pageTable[replacedPage].frameNumber = -1;
+        }
+
+        // Load new page into chosen frame
+        frames[frameToUse] = page;
+        entry.valid = true;
+        entry.frameNumber = frameToUse;
+        entry.loadedTime = currentTime;
+        entry.lastUsedTime = currentTime;
+
+        if (replacedPage == -1)
+            visualizeStep(page, "FAULT (loaded into free frame)");
+        else
+            visualizeStep(page, "FAULT (replacement)", replacedPage);
+    }
+
+    int chooseVictimFrame() {
+        if (algo == "FIFO" || algo == "fifo") {
+            return findVictimFrameFIFO();
+        } else if (algo == "LRU" || algo == "lru") {
+            return findVictimFrameLRU();
+        } else {
+            // default to FIFO if unknown
+            return findVictimFrameFIFO();
+        }
+    }
+
+    int findVictimFrameFIFO() {
+        int oldestTime = INT_MAX;
+        int victimIndex = 0;
+        for (int i = 0; i < numFrames; i++) {
+            int page = frames[i];
+            PageTableEntry &entry = pageTable[page];
+            if (entry.loadedTime < oldestTime) {
+                oldestTime = entry.loadedTime;
+                victimIndex = i;
+            }
+        }
+        return victimIndex;
+    }
+
+    int findVictimFrameLRU() {
+        int oldestTime = INT_MAX;
+        int victimIndex = 0;
+        for (int i = 0; i < numFrames; i++) {
+            int page = frames[i];
+            PageTableEntry &entry = pageTable[page];
+            if (entry.lastUsedTime < oldestTime) {
+                oldestTime = entry.lastUsedTime;
+                victimIndex = i;
+            }
+        }
+        return victimIndex;
+    }
+
+    void visualizeStep(int currentPage, const string &status, int replacedPage = -1) {
+        cout << "\nTime " << currentTime << ": Request page " << currentPage
+             << " -> " << status << "\n";
+        if (replacedPage != -1) {
+            cout << "Replaced page: " << replacedPage << "\n";
+        }
+        cout << "Frames state:\n";
+        for (int i = 0; i < numFrames; i++) {
+            cout << "  Frame " << i << ": ";
+            if (frames[i] == -1) cout << "-";
+            else cout << frames[i];
+            cout << "\n";
+        }
+        cout << "------------------------------\n";
+    }
+};
+
+int main() {
+    int numFrames, n;
+    string algo;
+    
+    cout << "Enter number of frames: ";
+    cin >> numFrames;
+
+    cout << "Enter replacement algorithm (FIFO / LRU): ";
+    cin >> algo;
+
+    cout << "Enter length of reference string: ";
+    cin >> n;
+
+    vector<int> refs(n);
+    cout << "Enter reference string (space separated page numbers):\n";
+    for (int i = 0; i < n; i++) {
+        cin >> refs[i];
+    }
+
+    PagingSimulator sim(numFrames, refs, algo);
+    sim.run();
+
+    return 0;
+}
